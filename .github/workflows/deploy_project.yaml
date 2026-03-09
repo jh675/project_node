@@ -3,55 +3,42 @@ name: Build Vue and Deploy Node App
 on:
   push:
     branches:
-      - main 
+      - main
 
-#on:
-#  pull_request:
-#    types: [closed]
-#    branches:
-#      - main
-          
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # 임시 서버인 ubuntu-latest 에 현재 git repository 정보 반영
-    - name: Checkout repository
-      uses: actions/checkout@v5
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    # 임시 서버인 ubuntu-latest 에 node를 설치
-    - name: Setup Node.js
-      uses: actions/setup-node@v6
-      with:
-        node-version: '22'
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
 
-    # 임시 서버인 ubuntu-latest 에 client 폴더 안에서 지정한 명령어 수행
-    - name: Build Vue app
-      working-directory: client
-      run: |
-        npm ci --no-audit --no-fund
-        npm run build
-        
-    # github actions 에 저장된 private key를 ubuntu에 복사
-    - name: Setup SSH key
-      run: |
+      - name: Install frontend dependencies
+        working-directory: ./frontapp
+        run: npm ci
+
+      - name: Build Vue app
+        working-directory: ./frontapp
+        run: npm run build
+
+      - name: Setup SSH key
+        run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
-    # 서버에 접속하여 배포 실행          
-    - name: SSH into server and deploy
-      run: |
-        scp   -r -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -P ${{ secrets.SSH_PORT }} client/dist/* ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/${{ secrets.SSH_USER }}/deploy_project/server/public/
-        ssh -vvv -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -p ${{ secrets.SSH_PORT }}  ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
-            cd ~/deploy_project
+      - name: SSH into server and deploy
+        run: |
+          ssh -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+            cd ~/project
             git pull origin main
-            cd server
-            npm ci --no-audit --no-fund
-            pm2 restart app || pm2 start app.js --name "app"
+            npm install --prefix backend
+            pm2 restart backend || pm2 start backend/app.js --name "app"
             pm2 save
           EOF
-
-        echo '== build end ==='
-        
